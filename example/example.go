@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"pptx-go/pptx"
+	"github.com/wanglihui/pptx-go/pptx"
 )
 
 func main() {

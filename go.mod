@@ -1,4 +1,4 @@
-module pptx-go
+module github.com/wanglihui/pptx-go
 
 go 1.19
 
