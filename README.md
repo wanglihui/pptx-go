@@ -30,6 +30,10 @@ pptx-go 直接操作 open office xml 文件，不依赖unioffice库，避免版�
     此文件主要封装操作placeholder的函数，包括替换placeholder的值，获取placeholder的值等;
     替换的方式有根据type, name, idx进行替换;
 
+## 使用方法
+
+参考example/example.go文件;
+
 ## 说明
 
 本项目代码主要有cursor自动生成，并进行了部分修改，以满足实际需求;
