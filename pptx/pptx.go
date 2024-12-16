@@ -15,7 +15,7 @@ import (
 
 const (
 	// PPTX 相关的命名空间
-	NsRelationships  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+	NsRelationships  = "http://schemas.openxmlformats.org/package/2006/relationships"
 	NsPresentationML = "http://schemas.openxmlformats.org/presentationml/2006/main"
 	NsDrawingML      = "http://schemas.openxmlformats.org/drawingml/2006/main"
 )
@@ -423,11 +423,11 @@ func (p *Presentation) AddSlide(layoutName string) (*Slide, error) {
 
 	// 创建新的slide XML，从layout复制
 	slideDoc := etree.NewDocument()
+	// 添加完整的XML声明
+	slideDoc.CreateProcInst("xml", `version="1.0" encoding="UTF-8" standalone="yes"`)
+
 	if layout.xml != nil && layout.xml.Root() != nil {
-		// fmt.Println(layout.xml.WriteToString())
-		// 复制根元素
 		root := layout.xml.Root().Copy()
-		// 修改元素名称从 "p:sldLayout" 到 "p:sld"
 		root.Tag = "sld"
 		slideDoc.SetRoot(root)
 	} else {
@@ -462,10 +462,19 @@ func (p *Presentation) AddSlide(layoutName string) (*Slide, error) {
 	}
 	p.files[slidePath] = slideData
 
-	// 创建空的关系文件
+	// 创建slide关系文件，包含对layout的引用
 	relsDoc := etree.NewDocument()
 	relationships := relsDoc.CreateElement("Relationships")
 	relationships.CreateAttr("xmlns", NsRelationships)
+
+	// 添加对layout的引用
+	layoutRel := relationships.CreateElement("Relationship")
+	layoutRel.CreateAttr("Id", "rId1")
+	layoutRel.CreateAttr("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout")
+	// 使用相对路径引用layout
+	layoutTarget := "../slideLayouts/" + filepath.Base(layout.path)
+	layoutRel.CreateAttr("Target", layoutTarget)
+
 	relsData, err := relsDoc.WriteToBytes()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create slide relationships: %w", err)
@@ -534,6 +543,10 @@ func (p *Presentation) removeSlideReference(slide *Slide) error {
 	p.files["ppt/presentation.xml"] = data
 
 	return nil
+}
+
+func (p *Presentation) GetSlides() []*Slide {
+	return p.slides
 }
 
 // GetSlide 获取指定索引的幻灯片

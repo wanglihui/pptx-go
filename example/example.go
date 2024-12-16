@@ -32,6 +32,14 @@ func example1() error {
 		return fmt.Errorf("failed to open template: %w", err)
 	}
 	defer pres.Close()
+	for {
+		if len(pres.GetSlides()) == 0 {
+			break
+		}
+		if err := pres.DeleteSlide(0); err != nil {
+			fmt.Printf("%v", err)
+		}
+	}
 
 	// 添加一个新的幻灯片（使用"Title Slide"布局）
 	slide, err := pres.AddSlide("仅标题")

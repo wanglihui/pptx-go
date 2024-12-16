@@ -88,7 +88,7 @@ func (s *Slide) GetPlaceholder(params ...interface{}) (*Placeholder, error) {
 	if len(params) == 0 {
 		return nil, fmt.Errorf("no parameters provided")
 	}
-
+	fmt.Println(s.xml.WriteToString())
 	// 查找 spTree，不使用命名空间前缀
 	spTree := s.xml.FindElement("//sld/cSld/spTree")
 	if spTree == nil {
