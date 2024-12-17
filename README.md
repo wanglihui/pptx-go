@@ -37,3 +37,5 @@ pptx-go 直接操作 open office xml 文件，不依赖unioffice库，避免版�
 ## 说明
 
 本项目代码主要有cursor自动生成，并进行了部分修改，以满足实际需求;
+
+使用啦[latex2mathml](https://git.sr.ht/~mekyt/latex2mathml)项目代码，因为go版本原因copy过来进行啦适配行修改

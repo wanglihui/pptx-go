@@ -22,6 +22,12 @@ func main() {
 	if err := example3(); err != nil {
 		log.Fatal("Example 3 failed:", err)
 	}
+
+	// 示例4：添加LaTeX内容
+	if err := example4(); err != nil {
+		log.Fatal("Example 4 failed:", err)
+	}
+
 }
 
 // example1 演示基本的打开和保存操作
@@ -187,6 +193,56 @@ func example3() error {
 
 	// 保存演示文稿
 	if err := pres.Save("output/annual_report_2023.pptx"); err != nil {
+		return fmt.Errorf("failed to save presentation: %w", err)
+	}
+
+	return nil
+}
+
+// example4 演示添加LaTeX内容
+func example4() error {
+	// 打开模板文件
+	pres, err := pptx.Open("templates/template4.pptx")
+	if err != nil {
+		return fmt.Errorf("failed to open template: %w", err)
+	}
+	defer pres.Close()
+
+	// 创建包含LaTeX的幻灯片
+	slide, err := pres.AddSlide("内容与标题")
+	if err != nil {
+		return fmt.Errorf("failed to add slide: %w", err)
+	}
+
+	// 设置标题
+	if title, err := slide.GetPlaceholder(pptx.PlaceholderTitle); err == nil {
+		title.SetText("LaTeX Examples")
+	}
+
+	// 添加LaTeX公式
+	if body, err := slide.GetPlaceholder(pptx.PlaceholderBody); err == nil {
+		latexContent := `Here are some mathematical formulas:
+
+1. Einstein's famous equation:
+   $E = mc^2$
+
+2. Quadratic formula:
+   $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$
+
+3. Integration by parts:
+   $\int u\,dv = uv - \int v\,du$
+
+4. Maxwell's equations:
+   $\nabla \cdot \mathbf{E} = \frac{\rho}{\varepsilon_0}$
+   $\nabla \cdot \mathbf{B} = 0$`
+
+		if err := body.SetTextWithLatex(latexContent); err != nil {
+			return fmt.Errorf("failed to set text with LaTeX: %w", err)
+		}
+	}
+
+	// 保存修改后的文件
+	if err := pres.Save("output/latex_example.pptx"); err != nil {
 		return fmt.Errorf("failed to save presentation: %w", err)
 	}
 

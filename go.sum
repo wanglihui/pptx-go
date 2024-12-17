@@ -1,2 +1,6 @@
 github.com/beevik/etree v1.3.0 h1:hQTc+pylzIKDb23yYprodCWWTt+ojFfUZyzU09a/hmU=
 github.com/beevik/etree v1.3.0/go.mod h1:aiPf89g/1k3AShMVAzriilpcE4R/Vuor90y83zVZWFc=
+github.com/neruyzo/etree v0.0.0-20230816193247-70b7b06b18ad h1:IFwkE74VpR/tnfi4UCZUYK7+pMU0xIbEorgugpFypG0=
+github.com/neruyzo/etree v0.0.0-20230816193247-70b7b06b18ad/go.mod h1:7hUaAgCNhmIwcrIolKvs2StY/ho5G7bAGSdvaowcxqw=
+github.com/wamuir/go-xslt v0.1.5 h1:FmO1SD7PpoJtHOfnXcb6R/+NANYHX8+mz0UogNJuPnk=
+github.com/wamuir/go-xslt v0.1.5/go.mod h1:4TQnJGYG4FeeVIgAnV4tyr5pyZQOpxfEZv6Uby/qikU=

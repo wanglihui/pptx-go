@@ -73,6 +73,57 @@ func (p *Placeholder) SetText(text string) error {
 	return nil
 }
 
+// SetText 设置占位符的文本内容，支持 LaTeX 公式
+func (p *Placeholder) SetTextWithLatex(text string) error {
+	if p.Shape == nil {
+		return fmt.Errorf("shape element is nil")
+	}
+
+	// 查找或创建 txBody
+	txBody := p.Shape.FindElement("p:txBody")
+	if txBody == nil {
+		txBody = p.Shape.CreateElement("p:txBody")
+	}
+
+	// 清除现有文本
+	for _, a := range txBody.SelectElements("a:p") {
+		txBody.RemoveChild(a)
+	}
+
+	// 创建新的段落
+	para := txBody.CreateElement("a:p")
+
+	// 解析文本中的 LaTeX 公式
+	segments := parseLatexFormula(text)
+	for _, segment := range segments {
+		if segment.IsLatex {
+			// 转换 LaTeX 为 OMML
+			ommlElements, err := convertLatexToOMML(segment.Text)
+			if err != nil {
+				return fmt.Errorf("failed to convert LaTeX to OMML: %w", err)
+			}
+			for _, elem := range ommlElements {
+				// 添加 a14:m 容器
+				mathContainer := etree.NewElement("a14:m")
+				mathContainer.CreateAttr("xmlns:a14", "http://schemas.microsoft.com/office/drawing/2010/main")
+				mathContainer.AddChild(elem)
+				para.AddChild(mathContainer)
+			}
+			// 使用 wrapOMMLInRun 包装 OMML 元素并添加到段落中
+			// run := wrapOMMLInRun(ommlElements)
+			// para.AddChild(run)
+		} else {
+			// 普通文本处理
+			run := para.CreateElement("a:r")
+			textElement := run.CreateElement("a:t")
+			textElement.SetText(segment.Text)
+		}
+	}
+
+	// 保存更改
+	return p.slide.SaveChanges()
+}
+
 // SetImage 设置占位符的图片
 func (p *Placeholder) SetImage(imagePath string) error {
 	// 读取图片文件
@@ -109,7 +160,7 @@ func (p *Placeholder) SetImage(imagePath string) error {
 
 // updateImageRelationship 更新图片关系
 func (p *Placeholder) updateImageRelationship(rId, imagePath string) error {
-	// 创建或更新关系文件
+	// 创���或更新关系文件
 	relsDoc := etree.NewDocument()
 	relationships := relsDoc.CreateElement("Relationships")
 	relationships.CreateAttr("xmlns", NsRelationships)
