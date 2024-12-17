@@ -12,10 +12,10 @@ type Slide struct {
 	xml      *etree.Document
 	path     string
 	relsPath string
-	rels     map[string]string
 	layout   *Layout
 	master   *Master
-	pres     *Presentation // 添加对Presentation的引用
+	pres     *Presentation
+	rels     map[string]*Relationship
 }
 
 // SlideSize 表示幻灯片大小

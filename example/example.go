@@ -152,7 +152,9 @@ func example3() error {
 		title.SetText("Agenda")
 	}
 	if body, err := tocSlide.GetPlaceholder(pptx.PlaceholderBody); err == nil {
-		body.SetText("1. Financial Highlights\n2. Market Analysis\n3. Future Strategy\n4. Q&A")
+		if err := body.SetText("1. Financial Highlights\n2. Market Analysis\n3. Future Strategy\n4. Q&A", pptx.WithLink("https://www.baidu.com", pptx.LinkTypeExternal)); err != nil {
+			return fmt.Errorf("failed to set text with link: %w", err)
+		}
 	}
 
 	// 3. 创建图表幻灯片
@@ -175,7 +177,9 @@ func example3() error {
 		title.SetText("Market Analysis")
 	}
 	if pic, err := imageSlide.GetPlaceholder(pptx.PlaceholderImage); err == nil {
-		pic.SetImage("market_analysis.jpg")
+		if err := pic.SetImage("http://gips0.baidu.com/it/u=1690853528,2506870245&fm=3028&app=3028&f=JPEG&fmt=auto?w=1024&h=1024"); err != nil {
+			return fmt.Errorf("failed to set image: %w", err)
+		}
 	}
 
 	// 5. 创建总结幻灯片
@@ -236,7 +240,7 @@ func example4() error {
    $\nabla \cdot \mathbf{E} = \frac{\rho}{\varepsilon_0}$
    $\nabla \cdot \mathbf{B} = 0$`
 
-		if err := body.SetTextWithLatex(latexContent); err != nil {
+		if err := body.SetText(latexContent, pptx.WithLatex()); err != nil {
 			return fmt.Errorf("failed to set text with LaTeX: %w", err)
 		}
 	}

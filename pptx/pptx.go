@@ -252,7 +252,7 @@ func (p *Presentation) initSlides(presDoc *etree.Document) error {
 
 		slide := &Slide{
 			path: slidePath,
-			rels: make(map[string]string),
+			rels: make(map[string]*Relationship),
 		}
 
 		// 解析slide XML
@@ -274,7 +274,13 @@ func (p *Presentation) initSlides(presDoc *etree.Document) error {
 			for _, rel := range relsDoc.FindElements("//Relationship") {
 				id := rel.SelectAttr("Id").Value
 				target := rel.SelectAttr("Target").Value
-				slide.rels[id] = target
+				rel := &Relationship{
+					Id:         id,
+					Target:     target,
+					Type:       rel.SelectAttr("Type").Value,
+					TargetMode: rel.SelectAttr("TargetMode").Value,
+				}
+				slide.rels[id] = rel
 			}
 		}
 
@@ -336,11 +342,14 @@ func (p *Presentation) updateFiles() error {
 			relationships := relsDoc.CreateElement("Relationships")
 			relationships.CreateAttr("xmlns", NsRelationships)
 
-			for id, target := range slide.rels {
+			for id, r := range slide.rels {
 				rel := relationships.CreateElement("Relationship")
 				rel.CreateAttr("Id", id)
-				rel.CreateAttr("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image")
-				rel.CreateAttr("Target", target)
+				rel.CreateAttr("Type", r.Type)
+				rel.CreateAttr("Target", r.Target)
+				if r.TargetMode == "External" {
+					rel.CreateAttr("TargetMode", r.TargetMode)
+				}
 			}
 
 			data, err := relsDoc.WriteToBytes()
@@ -444,7 +453,7 @@ func (p *Presentation) AddSlide(layoutName string) (*Slide, error) {
 		xml:      slideDoc,
 		path:     slidePath,
 		relsPath: slideRelsPath,
-		rels:     make(map[string]string),
+		rels:     make(map[string]*Relationship),
 		layout:   layout,
 		master:   p.findMasterForLayout(layout),
 		pres:     p,
@@ -462,6 +471,12 @@ func (p *Presentation) AddSlide(layoutName string) (*Slide, error) {
 	}
 	p.files[slidePath] = slideData
 
+	rel := &Relationship{
+		Id:     "rId1",
+		Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
+		Target: "../slideLayouts/" + filepath.Base(layout.path),
+	}
+	slide.rels["rId1"] = rel
 	// 创建slide关系文件，包含对layout的引用
 	relsDoc := etree.NewDocument()
 	relationships := relsDoc.CreateElement("Relationships")
@@ -469,11 +484,9 @@ func (p *Presentation) AddSlide(layoutName string) (*Slide, error) {
 
 	// 添加对layout的引用
 	layoutRel := relationships.CreateElement("Relationship")
-	layoutRel.CreateAttr("Id", "rId1")
-	layoutRel.CreateAttr("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout")
-	// 使用相对路径引用layout
-	layoutTarget := "../slideLayouts/" + filepath.Base(layout.path)
-	layoutRel.CreateAttr("Target", layoutTarget)
+	layoutRel.CreateAttr("Id", rel.Id)
+	layoutRel.CreateAttr("Type", rel.Type)
+	layoutRel.CreateAttr("Target", rel.Target)
 
 	relsData, err := relsDoc.WriteToBytes()
 	if err != nil {

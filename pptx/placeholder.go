@@ -3,6 +3,7 @@ package pptx
 import (
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -37,44 +38,8 @@ type Placeholder struct {
 	slide *Slide
 }
 
-// SetText 设置占位符的文本内容
-func (p *Placeholder) SetText(text string) error {
-	if p.Shape == nil {
-		return fmt.Errorf("shape element is nil")
-	}
-
-	// 查找或创建 txBody
-	txBody := p.Shape.FindElement("txBody")
-	if txBody == nil {
-		txBody = p.Shape.CreateElement("txBody")
-	}
-
-	// 清除现有文本
-	for _, a := range txBody.SelectElements("a:p") {
-		txBody.RemoveChild(a)
-	}
-
-	// 创建新的段落
-	para := txBody.CreateElement("a:p")
-	run := para.CreateElement("a:r")
-	textElement := run.CreateElement("a:t")
-	textElement.SetText(text)
-
-	// 确保 slide 引用存在
-	if p.slide == nil {
-		return fmt.Errorf("slide reference is nil")
-	}
-
-	// 保存更改
-	if err := p.slide.SaveChanges(); err != nil {
-		return fmt.Errorf("failed to save changes: %w", err)
-	}
-	// fmt.Println(p.slide.xml.WriteToString())
-	return nil
-}
-
-// SetText 设置占位符的文本内容，支持 LaTeX 公式
-func (p *Placeholder) SetTextWithLatex(text string) error {
+// SetText 设置占位符的文本内容，支持普通文本、LaTeX 公式和超链接
+func (p *Placeholder) SetText(text string, options ...TextOption) error {
 	if p.Shape == nil {
 		return fmt.Errorf("shape element is nil")
 	}
@@ -93,74 +58,261 @@ func (p *Placeholder) SetTextWithLatex(text string) error {
 	// 创建新的段落
 	para := txBody.CreateElement("a:p")
 
-	// 解析文本中的 LaTeX 公式
-	segments := parseLatexFormula(text)
-	for _, segment := range segments {
-		if segment.IsLatex {
-			// 转换 LaTeX 为 OMML
-			ommlElements, err := convertLatexToOMML(segment.Text)
-			if err != nil {
-				return fmt.Errorf("failed to convert LaTeX to OMML: %w", err)
-			}
-			for _, elem := range ommlElements {
-				// 添加 a14:m 容器
-				mathContainer := etree.NewElement("a14:m")
-				mathContainer.CreateAttr("xmlns:a14", "http://schemas.microsoft.com/office/drawing/2010/main")
-				mathContainer.AddChild(elem)
-				para.AddChild(mathContainer)
-			}
-			// 使用 wrapOMMLInRun 包装 OMML 元素并添加到段落中
-			// run := wrapOMMLInRun(ommlElements)
-			// para.AddChild(run)
-		} else {
-			// 普通文本处理
-			run := para.CreateElement("a:r")
-			textElement := run.CreateElement("a:t")
-			textElement.SetText(segment.Text)
-		}
+	// 应用选项
+	opts := &TextOptions{}
+	for _, option := range options {
+		option(opts)
 	}
 
-	// 保存更改
+	if opts.EnableLatex {
+		// LaTeX 处理逻辑
+		segments := parseLatexFormula(text)
+		for _, segment := range segments {
+			if segment.IsLatex {
+				// 转换 LaTeX 为 OMML
+				ommlElements, err := convertLatexToOMML(segment.Text)
+				if err != nil {
+					return fmt.Errorf("failed to convert LaTeX to OMML: %w", err)
+				}
+				for _, elem := range ommlElements {
+					// 添加 a14:m 容器
+					mathContainer := etree.NewElement("a14:m")
+					mathContainer.CreateAttr("xmlns:a14", "http://schemas.microsoft.com/office/drawing/2010/main")
+					mathContainer.AddChild(elem)
+					para.AddChild(mathContainer)
+				}
+			} else {
+				p.addTextRun(para, segment.Text, opts)
+			}
+		}
+	} else {
+		// 普通文本处理
+		p.addTextRun(para, text, opts)
+	}
+
 	return p.slide.SaveChanges()
 }
 
-// SetImage 设置占位符的图片
-func (p *Placeholder) SetImage(imagePath string) error {
-	// 读取图片文件
-	imageData, err := ioutil.ReadFile(imagePath)
-	if err != nil {
-		return fmt.Errorf("failed to read image file: %w", err)
+// TextOptions 定义文本设置的选项
+type TextOptions struct {
+	EnableLatex bool
+	Link        string   // 超链接URL
+	LinkType    LinkType // 超链接类型
+}
+
+// LinkType 定义超链接类型
+type LinkType int
+
+const (
+	LinkTypeExternal LinkType = iota // 外部链接
+	LinkTypeSlide                    // 幻灯片内部链接
+)
+
+// TextOption 定义文本设置的选项函数
+type TextOption func(*TextOptions)
+
+// WithLatex 启用 LaTeX 支持
+func WithLatex() TextOption {
+	return func(o *TextOptions) {
+		o.EnableLatex = true
 	}
+}
+
+// WithLink 添加超链接
+func WithLink(url string, linkType LinkType) TextOption {
+	return func(o *TextOptions) {
+		o.Link = url
+		o.LinkType = linkType
+	}
+}
+
+// addTextRun 添加文本运行
+func (p *Placeholder) addTextRun(para *etree.Element, text string, opts *TextOptions) {
+	run := para.CreateElement("a:r")
+
+	// 添加运行属性
+	rPr := run.CreateElement("a:rPr")
+	rPr.CreateAttr("lang", "en-US")
+	rPr.CreateAttr("sz", "2400")
+
+	// 添加文本元素
+	t := run.CreateElement("a:t")
+	t.SetText(text)
+
+	// 如果有超链接，添加超链接
+	if opts != nil && opts.Link != "" {
+		// 获取 slide 引用
+		slide := p.slide
+		if slide != nil {
+			// 创建关系ID
+			rId := fmt.Sprintf("rId%d", len(slide.rels)+1)
+
+			// 添加超链接元素
+			hlinkClick := rPr.CreateElement("a:hlinkClick")
+			hlinkClick.CreateAttr("r:id", rId)
+
+			// 更新关系
+			if err := p.updateHyperlinkRelationship(rId, opts.Link, opts.LinkType); err != nil {
+				// 在际应用中，你可能需要更好的错误处理
+				fmt.Printf("Failed to update hyperlink relationship: %v\n", err)
+			}
+		}
+	}
+}
+
+// updateHyperlinkRelationship 更新超链接关系
+func (p *Placeholder) updateHyperlinkRelationship(rId, target string, linkType LinkType) error {
+	// 获取 slide 引用
+	slide := p.slide
+	if slide == nil {
+		return fmt.Errorf("could not find slide reference")
+	}
+
+	// 创建关系
+	rel := &Relationship{
+		Id:     rId,
+		Target: target,
+	}
+
+	if linkType == LinkTypeExternal {
+		rel.Type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+		rel.TargetMode = "External"
+	} else {
+		rel.Type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
+	}
+
+	// 添加到幻灯片关系中
+	slide.rels[rId] = rel
+
+	return nil
+}
+
+// SetImage 设置占位符的图片，支持本地文件路径和网络URL
+func (p *Placeholder) SetImage(imagePath string) error {
+	var imageData []byte
+	var err error
+
+	// 检查是否为网络URL
+	if strings.HasPrefix(imagePath, "http://") || strings.HasPrefix(imagePath, "https://") {
+		// 下载网络图片
+		imageData, err = downloadImage(imagePath)
+		if err != nil {
+			return fmt.Errorf("failed to download image: %w", err)
+		}
+	} else {
+		// 读取本地图片文件
+		imageData, err = ioutil.ReadFile(imagePath)
+		if err != nil {
+			return fmt.Errorf("failed to read image file: %w", err)
+		}
+	}
+
+	// 保存图片到pptx文件
+	imgExt := strings.ToLower(filepath.Ext(imagePath))
+	if imgExt == "" {
+		// 如果是网络URL没有扩展名，默认使用.png
+		imgExt = ".png"
+	}
+	fmt.Println("p.slide.rels===>", p.slide.rels)
+	imgPath := fmt.Sprintf("ppt/media/image%d%s", len(p.slide.rels)+1, imgExt)
 
 	// 创建关系ID
 	rId := fmt.Sprintf("rId%d", len(p.slide.rels)+1)
 
 	// 更新关系文件
-	if err := p.updateImageRelationship(rId, imagePath); err != nil {
+	if err := p.updateImageRelationship(rId, filepath.Base(imgPath)); err != nil {
 		return err
 	}
 
-	// 更新形状内容
-	blipFill := p.Shape.FindElement("blipFill")
-	if blipFill == nil {
-		blipFill = p.Shape.CreateElement("blipFill")
-	}
+	// 创建新的 p:pic 元素
+	pic := etree.NewElement("p:pic")
 
+	// 添加 nvPicPr (non-visual picture properties)
+	nvPicPr := pic.CreateElement("p:nvPicPr")
+	cNvPr := nvPicPr.CreateElement("p:cNvPr")
+	// cNvPr.CreateAttr("id", "1")
+	cNvPr.CreateAttr("name", "Picture")
+
+	cNvPicPr := nvPicPr.CreateElement("p:cNvPicPr")
+	cNvPicPr.CreateElement("a:picLocks").CreateAttr("noChangeAspect", "1")
+
+	nvPr := nvPicPr.CreateElement("p:nvPr")
+	ph := nvPr.CreateElement("p:ph")
+	ph.CreateAttr("type", "pic")
+
+	// 添加 blipFill
+	blipFill := pic.CreateElement("p:blipFill")
 	blip := blipFill.CreateElement("a:blip")
 	blip.CreateAttr("r:embed", rId)
 
-	// 保存图片到pptx文件
-	imgExt := strings.ToLower(filepath.Ext(imagePath))
-	imgPath := fmt.Sprintf("ppt/media/image%d%s", len(p.slide.rels)+1, imgExt)
+	stretch := blipFill.CreateElement("a:stretch")
+	stretch.CreateElement("a:fillRect")
+
+	// 复制原占位符的 spPr (shape properties)
+	spPr := pic.CreateElement("p:spPr")
+	if originalSpPr := p.Shape.FindElement("p:spPr"); originalSpPr != nil {
+		// 复制变换信息
+		if xfrm := originalSpPr.FindElement("a:xfrm"); xfrm != nil {
+			newXfrm := spPr.CreateElement("a:xfrm")
+			// 复制所有属性
+			for _, attr := range xfrm.Attr {
+				newXfrm.CreateAttr(attr.Key, attr.Value)
+			}
+			// 复制位置和大小元素
+			for _, child := range xfrm.ChildElements() {
+				newChild := newXfrm.CreateElement(child.Tag)
+				for _, attr := range child.Attr {
+					newChild.CreateAttr(attr.Key, attr.Value)
+				}
+			}
+		}
+
+		// 添加预设形状
+		prstGeom := spPr.CreateElement("a:prstGeom")
+		prstGeom.CreateAttr("prst", "rect")
+		prstGeom.CreateElement("a:avLst")
+	}
+
+	// 替换原占位符内容
+	parent := p.Shape.Parent()
+	if parent == nil {
+		return fmt.Errorf("placeholder parent element not found")
+	}
+
+	// 移除原占位符
+	parent.RemoveChild(p.Shape)
+
+	// 添加新的 pic 元素
+	parent.AddChild(pic)
+
+	// 更新 Shape 引用
+	p.Shape = pic
+
+	// 保存图片数据
 	p.slide.pres.files[imgPath] = imageData
 
 	// 保存幻灯片更改
 	return p.slide.SaveChanges()
 }
 
+// downloadImage 下载网络图片
+func downloadImage(url string) ([]byte, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to download image, status code: %d", resp.StatusCode)
+	}
+
+	return ioutil.ReadAll(resp.Body)
+}
+
 // updateImageRelationship 更新图片关系
 func (p *Placeholder) updateImageRelationship(rId, imagePath string) error {
-	// 创���或更新关系文件
+	// 创建或更新关系文件
 	relsDoc := etree.NewDocument()
 	relationships := relsDoc.CreateElement("Relationships")
 	relationships.CreateAttr("xmlns", NsRelationships)
@@ -177,7 +329,11 @@ func (p *Placeholder) updateImageRelationship(rId, imagePath string) error {
 	}
 
 	p.slide.pres.files[p.slide.relsPath] = data // 使用presentation的files
-	p.slide.rels[rId] = filepath.Base(imagePath)
+	p.slide.rels[rId] = &Relationship{
+		Id:     rId,
+		Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+		Target: "../media/" + filepath.Base(imagePath),
+	}
 
 	return nil
 }
@@ -287,7 +443,7 @@ func (s *Slide) GetPlaceholders() ([]*Placeholder, error) {
 	return placeholders, nil
 }
 
-// SaveChanges 保存对幻灯片的修改
+// SaveChanges 保存对幻灯片的更改
 func (s *Slide) SaveChanges() error {
 	if s.xml != nil {
 		data, err := s.xml.WriteToBytes()
@@ -312,4 +468,12 @@ func (p *Placeholder) Debug() {
 		fmt.Printf("Slide path: %s\n", p.slide.path)
 		fmt.Printf("Presentation is nil: %v\n", p.slide.pres == nil)
 	}
+}
+
+// Relationship 定义了 PPTX 中的关系
+type Relationship struct {
+	Id         string
+	Type       string
+	Target     string
+	TargetMode string
 }
