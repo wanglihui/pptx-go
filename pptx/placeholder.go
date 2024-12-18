@@ -213,8 +213,13 @@ func (p *Placeholder) SetImage(imagePath string) error {
 		// 如果是网络URL没有扩展名，默认使用.png
 		imgExt = ".png"
 	}
-	fmt.Println("p.slide.rels===>", p.slide.rels)
 	imgPath := fmt.Sprintf("ppt/media/image%d%s", len(p.slide.rels)+1, imgExt)
+
+	// 更新 [Content_Types].xml 添加图片格式声明
+	contentType := getImageContentType(imgExt)
+	if err := p.updateContentTypes(imgExt, contentType); err != nil {
+		return fmt.Errorf("failed to update content types: %w", err)
+	}
 
 	// 创建关系ID
 	rId := fmt.Sprintf("rId%d", len(p.slide.rels)+1)
@@ -224,14 +229,23 @@ func (p *Placeholder) SetImage(imagePath string) error {
 		return err
 	}
 
+	// 获取父元素
+	parent := p.Shape.Parent()
+	if parent == nil {
+		return fmt.Errorf("placeholder parent element not found")
+	}
+
+	// 生成唯一ID
+	shapeId := fmt.Sprintf("%d", len(parent.ChildElements())+1)
+
 	// 创建新的 p:pic 元素
 	pic := etree.NewElement("p:pic")
 
 	// 添加 nvPicPr (non-visual picture properties)
 	nvPicPr := pic.CreateElement("p:nvPicPr")
 	cNvPr := nvPicPr.CreateElement("p:cNvPr")
-	// cNvPr.CreateAttr("id", "1")
-	cNvPr.CreateAttr("name", "Picture")
+	cNvPr.CreateAttr("id", shapeId)
+	cNvPr.CreateAttr("name", "Picture "+shapeId)
 
 	cNvPicPr := nvPicPr.CreateElement("p:cNvPicPr")
 	cNvPicPr.CreateElement("a:picLocks").CreateAttr("noChangeAspect", "1")
@@ -258,11 +272,18 @@ func (p *Placeholder) SetImage(imagePath string) error {
 			for _, attr := range xfrm.Attr {
 				newXfrm.CreateAttr(attr.Key, attr.Value)
 			}
-			// 复制位置和大小元素
-			for _, child := range xfrm.ChildElements() {
-				newChild := newXfrm.CreateElement(child.Tag)
-				for _, attr := range child.Attr {
-					newChild.CreateAttr(attr.Key, attr.Value)
+
+			// 复制位置和大小元素，确保使用正确的命名空间
+			if off := xfrm.FindElement("off"); off != nil {
+				newOff := newXfrm.CreateElement("a:off")
+				for _, attr := range off.Attr {
+					newOff.CreateAttr(attr.Key, attr.Value)
+				}
+			}
+			if ext := xfrm.FindElement("ext"); ext != nil {
+				newExt := newXfrm.CreateElement("a:ext")
+				for _, attr := range ext.Attr {
+					newExt.CreateAttr(attr.Key, attr.Value)
 				}
 			}
 		}
@@ -273,16 +294,8 @@ func (p *Placeholder) SetImage(imagePath string) error {
 		prstGeom.CreateElement("a:avLst")
 	}
 
-	// 替换原占位符内容
-	parent := p.Shape.Parent()
-	if parent == nil {
-		return fmt.Errorf("placeholder parent element not found")
-	}
-
-	// 移除原占位符
+	// 移除原占位符并添加新的 pic 元素
 	parent.RemoveChild(p.Shape)
-
-	// 添加新的 pic 元素
 	parent.AddChild(pic)
 
 	// 更新 Shape 引用
@@ -293,6 +306,75 @@ func (p *Placeholder) SetImage(imagePath string) error {
 
 	// 保存幻灯片更改
 	return p.slide.SaveChanges()
+}
+
+// getImageContentType 根据文件扩展名返回对应的 Content Type
+func getImageContentType(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".bmp":
+		return "image/bmp"
+	case ".tiff":
+		return "image/tiff"
+	case ".wmf":
+		return "image/x-wmf"
+	default:
+		return "image/png"
+	}
+}
+
+// updateContentTypes 更新 [Content_Types].xml 文件
+func (p *Placeholder) updateContentTypes(ext, contentType string) error {
+	// 获取 [Content_Types].xml 文件
+	contentTypesData, exists := p.slide.pres.files["[Content_Types].xml"]
+	if !exists {
+		return fmt.Errorf("content types file not found")
+	}
+
+	// 解析 XML
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(contentTypesData); err != nil {
+		return fmt.Errorf("failed to parse content types: %w", err)
+	}
+
+	// 查找 Types 元素
+	types := doc.FindElement("Types")
+	if types == nil {
+		return fmt.Errorf("types element not found")
+	}
+
+	// 去掉扩展名前面的点号
+	cleanExt := strings.TrimPrefix(ext, ".")
+
+	// 检查是否已存在该扩展名的声明
+	extExists := false
+	for _, default_ := range types.SelectElements("Default") {
+		if extension := default_.SelectAttrValue("Extension", ""); extension == cleanExt {
+			extExists = true
+			break
+		}
+	}
+
+	// 如果不存在，添加新的声明
+	if !extExists {
+		default_ := types.CreateElement("Default")
+		default_.CreateAttr("Extension", cleanExt)
+		default_.CreateAttr("ContentType", contentType)
+
+		// 保存更新后的文件
+		data, err := doc.WriteToBytes()
+		if err != nil {
+			return fmt.Errorf("failed to serialize content types: %w", err)
+		}
+		p.slide.pres.files["[Content_Types].xml"] = data
+	}
+
+	return nil
 }
 
 // downloadImage 下载网络图片
@@ -397,7 +479,7 @@ func parsePlaceholderType(typeStr string) PlaceholderType {
 	}
 }
 
-// GetPlaceholders 获取幻灯片中的所有占位符
+// GetPlaceholders 获取幻灯片中���所有占位符
 func (s *Slide) GetPlaceholders() ([]*Placeholder, error) {
 	var placeholders []*Placeholder
 
