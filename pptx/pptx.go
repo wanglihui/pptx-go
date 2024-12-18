@@ -220,7 +220,7 @@ func (p *Presentation) loadLayout(layoutPath string) (*Layout, error) {
 	// 解析layout关系文件
 	layoutRelsPath := filepath.Join("ppt/slideLayouts/_rels", filepath.Base(layoutPath)+".rels")
 	// fmt.Println("layoutRelsPath1=====>", layoutRelsPath)
-	fmt.Println(p.files[layoutRelsPath])
+	// fmt.Println(p.files[layoutRelsPath])
 	if relsContent, ok := p.files[layoutRelsPath]; ok {
 		layout.relsPath = layoutRelsPath
 		// fmt.Println("layoutRelsPath=====>", layoutRelsPath)

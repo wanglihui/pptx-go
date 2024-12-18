@@ -207,13 +207,20 @@ func (p *Placeholder) SetImage(imagePath string) error {
 		}
 	}
 
-	// 保存图片到pptx文件
+	// 获取当前演示文稿中的媒体文件数量
+	mediaCount := 0
+	for path := range p.slide.pres.files {
+		if strings.HasPrefix(path, "ppt/media/") {
+			mediaCount++
+		}
+	}
+
+	// 生成新的图片路径
 	imgExt := strings.ToLower(filepath.Ext(imagePath))
 	if imgExt == "" {
-		// 如果是网络URL没有扩展名，默认使用.png
 		imgExt = ".png"
 	}
-	imgPath := fmt.Sprintf("ppt/media/image%d%s", len(p.slide.rels)+1, imgExt)
+	imgPath := fmt.Sprintf("ppt/media/image%d%s", mediaCount+1, imgExt)
 
 	// 更新 [Content_Types].xml 添加图片格式声明
 	contentType := getImageContentType(imgExt)
@@ -294,7 +301,7 @@ func (p *Placeholder) SetImage(imagePath string) error {
 		prstGeom.CreateElement("a:avLst")
 	}
 
-	// 移除原占位符并添加新的 pic 元素
+	// 移除原占位符��添加新的 pic 元素
 	parent.RemoveChild(p.Shape)
 	parent.AddChild(pic)
 
@@ -479,7 +486,7 @@ func parsePlaceholderType(typeStr string) PlaceholderType {
 	}
 }
 
-// GetPlaceholders 获取幻灯片中���所有占位符
+// GetPlaceholders 获取幻灯片中所有占位符
 func (s *Slide) GetPlaceholders() ([]*Placeholder, error) {
 	var placeholders []*Placeholder
 
