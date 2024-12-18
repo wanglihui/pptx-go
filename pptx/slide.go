@@ -88,7 +88,7 @@ func (s *Slide) GetPlaceholder(params ...interface{}) (*Placeholder, error) {
 	if len(params) == 0 {
 		return nil, fmt.Errorf("no parameters provided")
 	}
-	fmt.Println(s.xml.WriteToString())
+	// fmt.Println(s.xml.WriteToString())
 	// 查找 spTree，不使用命名空间前缀
 	spTree := s.xml.FindElement("//sld/cSld/spTree")
 	if spTree == nil {
@@ -194,4 +194,70 @@ func (s *Slide) GetPlaceholder(params ...interface{}) (*Placeholder, error) {
 	}
 
 	return nil, fmt.Errorf("placeholder not found")
+}
+
+// copyLayoutRelationships 复制布局中的关系到新幻灯片
+func (s *Slide) copyLayoutRelationships(layout *Layout) error {
+	// 读取布局的关系文件
+	layoutRelsData, exists := s.pres.files[layout.relsPath]
+	if !exists {
+		return nil // 如果布局没有关系文件，直接返回
+	}
+
+	// 解析布局关系文件
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(layoutRelsData); err != nil {
+		return fmt.Errorf("failed to parse layout relationships: %w", err)
+	}
+
+	// 遍历所有关系
+	for _, rel := range doc.FindElements("//Relationship") {
+		rId := rel.SelectAttrValue("Id", "")
+		target := rel.SelectAttrValue("Target", "")
+		relType := rel.SelectAttrValue("Type", "")
+		targetMode := rel.SelectAttrValue("TargetMode", "")
+
+		// 创建新的关系ID
+		newRId := fmt.Sprintf("rId%d", len(s.rels)+1)
+
+		// 添加到幻灯片的关系中
+		s.rels[newRId] = &Relationship{
+			Id:         newRId,
+			Type:       relType,
+			Target:     target,
+			TargetMode: targetMode,
+		}
+
+		// 更新幻灯片XML中的rId引用
+		s.updateReferenceIds(rId, newRId)
+	}
+
+	return nil
+}
+
+// updateReferenceIds 更新幻灯片XML中的rId引用
+func (s *Slide) updateReferenceIds(oldRId, newRId string) {
+	// 查找所有包含 r:id 属性的元素
+	for _, elem := range s.xml.FindElements("//*[@r:id]") {
+		if id := elem.SelectAttrValue("r:id", ""); id == oldRId {
+			elem.RemoveAttr("r:id")
+			elem.CreateAttr("r:id", newRId)
+		}
+	}
+
+	// 查找所有包含 r:embed 属性的元素
+	for _, elem := range s.xml.FindElements("//*[@r:embed]") {
+		if id := elem.SelectAttrValue("r:embed", ""); id == oldRId {
+			elem.RemoveAttr("r:embed")
+			elem.CreateAttr("r:embed", newRId)
+		}
+	}
+
+	// 查找所有包含 r:link 属性的元素
+	for _, elem := range s.xml.FindElements("//*[@r:link]") {
+		if id := elem.SelectAttrValue("r:link", ""); id == oldRId {
+			elem.RemoveAttr("r:link")
+			elem.CreateAttr("r:link", newRId)
+		}
+	}
 }

@@ -74,7 +74,7 @@ func Open(filename string) (*Presentation, error) {
 			return nil, fmt.Errorf("failed to read zip file entry %s: %w", file.Name, err)
 		}
 		rc.Close()
-
+		// fmt.Println("file.Name=====>", file.Name)
 		pptx.files[file.Name] = content
 	}
 
@@ -218,9 +218,12 @@ func (p *Presentation) loadLayout(layoutPath string) (*Layout, error) {
 	}
 
 	// 解析layout关系文件
-	layoutRelsPath := filepath.Join("ppt/_rels", filepath.Base(layoutPath)+".rels")
+	layoutRelsPath := filepath.Join("ppt/slideLayouts/_rels", filepath.Base(layoutPath)+".rels")
+	// fmt.Println("layoutRelsPath1=====>", layoutRelsPath)
+	fmt.Println(p.files[layoutRelsPath])
 	if relsContent, ok := p.files[layoutRelsPath]; ok {
 		layout.relsPath = layoutRelsPath
+		// fmt.Println("layoutRelsPath=====>", layoutRelsPath)
 		relsDoc := etree.NewDocument()
 		if err := relsDoc.ReadFromBytes(relsContent); err != nil {
 			return nil, fmt.Errorf("failed to parse layout rels: %w", err)
@@ -448,16 +451,48 @@ func (p *Presentation) AddSlide(layoutName string) (*Slide, error) {
 	slidePath := fmt.Sprintf("ppt/slides/slide%d.xml", slideIndex)
 	slideRelsPath := fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", slideIndex)
 
-	// 创建新的slide对象
+	// 首先复制布局的关系
+	layoutRels := make(map[string]*Relationship)
+	// fmt.Println("layoutRels=====>", layout.relsPath)
+	if layoutRelsData, exists := p.files[layout.relsPath]; exists {
+		// 解析布局关系文件
+		layoutRelsDoc := etree.NewDocument()
+		if err := layoutRelsDoc.ReadFromBytes(layoutRelsData); err != nil {
+			return nil, fmt.Errorf("failed to parse layout relationships: %w", err)
+		}
+
+		// 复制所有关系
+		for _, rel := range layoutRelsDoc.FindElements("//Relationship") {
+			layoutRels[rel.SelectAttrValue("Id", "")] = &Relationship{
+				Id:         rel.SelectAttrValue("Id", ""),
+				Type:       rel.SelectAttrValue("Type", ""),
+				Target:     rel.SelectAttrValue("Target", ""),
+				TargetMode: rel.SelectAttrValue("TargetMode", ""),
+			}
+		}
+	}
+
+	// 创建新的slide对象，使用复制的关系
 	slide := &Slide{
 		xml:      slideDoc,
 		path:     slidePath,
 		relsPath: slideRelsPath,
-		rels:     make(map[string]*Relationship),
+		rels:     layoutRels, // 使用复制的布局关系
 		layout:   layout,
 		master:   p.findMasterForLayout(layout),
 		pres:     p,
 	}
+
+	// 生成新的rId
+	newRid := fmt.Sprintf("rId%d", len(slide.rels)+1)
+
+	// 添加对layout的基础引用关系
+	layoutRel := &Relationship{
+		Id:     newRid,
+		Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
+		Target: "../slideLayouts/" + filepath.Base(layout.path),
+	}
+	slide.rels[newRid] = layoutRel
 
 	// 更新presentation.xml中的幻灯片列表
 	if err := p.updatePresentationSlideList(slide); err != nil {
@@ -471,22 +506,21 @@ func (p *Presentation) AddSlide(layoutName string) (*Slide, error) {
 	}
 	p.files[slidePath] = slideData
 
-	rel := &Relationship{
-		Id:     "rId1",
-		Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
-		Target: "../slideLayouts/" + filepath.Base(layout.path),
-	}
-	slide.rels["rId1"] = rel
-	// 创建slide关系文件，包含对layout的引用
+	// 创建slide关系文件
 	relsDoc := etree.NewDocument()
 	relationships := relsDoc.CreateElement("Relationships")
 	relationships.CreateAttr("xmlns", NsRelationships)
 
-	// 添加对layout的引用
-	layoutRel := relationships.CreateElement("Relationship")
-	layoutRel.CreateAttr("Id", rel.Id)
-	layoutRel.CreateAttr("Type", rel.Type)
-	layoutRel.CreateAttr("Target", rel.Target)
+	// 添加所有关系（包括从布局复制的和layout引用）
+	for _, rel := range slide.rels {
+		relationship := relationships.CreateElement("Relationship")
+		relationship.CreateAttr("Id", rel.Id)
+		relationship.CreateAttr("Type", rel.Type)
+		relationship.CreateAttr("Target", rel.Target)
+		if rel.TargetMode != "" {
+			relationship.CreateAttr("TargetMode", rel.TargetMode)
+		}
+	}
 
 	relsData, err := relsDoc.WriteToBytes()
 	if err != nil {
